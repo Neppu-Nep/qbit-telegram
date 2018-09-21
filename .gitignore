@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+# Compiled Files
+bot_auth.py
+logins.json
+
 # Distribution / packaging
 .Python
 build/

@@ -1,0 +1,22 @@
+{
+	"dummy1" : {
+		"ip_port": "192.168.0.1:8080",
+		"username": "admin",
+		"password": "password"
+	},
+	"dummy2" : {
+		"ip_port": "192.168.0.2:8080",
+		"username": "admin",
+		"password": "password"
+	},
+	"dummy3" : {
+		"ip_port": "192.168.0.3:8080",
+		"username": "admin",
+		"password": "password"
+	},
+	"dummy4" : {
+		"ip_port": "192.168.0.4:8080",
+		"username": "admin",
+		"password": "password"
+	}
+}

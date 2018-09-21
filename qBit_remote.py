@@ -7,7 +7,9 @@ import bot_auth
 from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters, ConversationHandler)
 import logging
 import re
+import json
 from qbittorrent import Client
+from qbittorrent import client
 from requests import exceptions
 
 
@@ -23,7 +25,6 @@ class Bot:
     logger = logging.getLogger(name=__name__)
 
     IP = 0
-    LOGIN_PROMPT = 1
 
     ADD_FILE = 0
     ADD_MAGNET_LINK = 0
@@ -38,9 +39,15 @@ class Bot:
         user = update.message.from_user
         if str(user.id) in bot_auth.user_id:
             self.logger.info("Authorized usage tried by: %s -- %s" % (user.username, user.id))
+            with open('logins.json', 'r') as f:
+                logins = json.load(f)
+            list_of_logins = ""
+            for key in logins:
+                list_of_logins += key + "\n"
             update.message.reply_text(
-                "Hello, I'm QBitTorrent Remote controller.\n"
-                "To use me please firstly connect me to QBit server by typing IP:PORT for me:")
+                "Hello, I'm QBitTorrent Remote controller.\n\n"
+                "List of available servers\n\n" +
+                list_of_logins)
             return self.IP
         else:
             self.logger.info("Unauthorized usage tried by: %s -- %s" % (user.username, user.id))
@@ -49,7 +56,14 @@ class Bot:
             return ConversationHandler.END
 
     def ip(self, bot, update):
-        self.ip_port_text = update.message.text
+        self.login_info = update.message.text 
+        with open('logins.json', 'r') as f:
+            logins = json.load(f)
+        for key in logins:
+            if key in self.login_info:
+                self.ip_port_text = logins[key]['ip_port']
+                self.username = logins[key]['username']
+                self.password = logins[key]['password']
         user = update.message.from_user
         if re.match('^(\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}|localhost):\d{1,5}$', self.ip_port_text):
             self.logger.info("User %s entered a right IP and PORT" % user.id)
@@ -64,53 +78,34 @@ class Bot:
                     self.logged_in = True
                 except client.LoginRequired:
                     self.logger.info("Login required.")
-                    update.message.reply_text("Username and password is required to connect client.\n"
-                                              "Please enter an username and password by seperating them with space.\n"
-                                              "If you don't know username and password you can"
-                                              " '/cancel'. and try again later")
-                    return self.LOGIN_PROMPT
+                    if not self.username and self.password:
+                        update.message.reply_text("Login info missing.\n"
+                                                  "Please add in logins.json")
+                        return ConversationHandler.END
+                    else:
+                        self.logger.info("Trying to login with given username and password")
+                        try:
+                            self.qb.login(username=self.username, password=self.password)
+                            self.qb.torrents()
+                            self.logger.info("Logging in was successful.")
+                            update.message.reply_text("Logged in! Now you can use me.\n"
+                                                      "To get info about commands type /help")
+                            self.logged_in = True
+                        except client.LoginRequired:
+                            self.logger.info("Username or Password was wrong")
+                            update.message.reply_text("Username or Password was wrong\n"
+                                                      "Please edit the username or password in logins.json.")
+                            return ConversationHandler.END                 
+
             except exceptions.ConnectionError:
                 self.logger.info("Connection refused.")
                 update.message.reply_text("Connection to given IP address is refused."
                                           "\nPlease try again by typing /start")
                 self.ip_port_text = None
-
         else:
             self.logger.info("User %s entered a wrong IP and PORT" % user.id)
-            update.message.reply_text("Please enter a proper ip and port. You can restart by typing /start")
+            update.message.reply_text("Please enter a proper ip and port in logins.json.\nYou can restart by typing /start")
         return ConversationHandler.END
-
-    def login(self, bot, update):
-        self.logger.info("Checking if message fits the RegEX")
-        username_password = update.message.text
-        self.username_password = username_password
-        user = update.message.from_user
-        if re.match('^[^ ]+ [^ ]+$', username_password):
-            username_password_split = username_password.split(" ")
-            self.logger.info("Trying to login with given username and password")
-            try:
-                self.qb.login(username=username_password_split[0], password=username_password_split[1])
-                self.qb.torrents()
-                self.logger.info("Logging in was successful.")
-                update.message.reply_text("Logged in! Now you can use me.\n"
-                                          "To get info about commands type /help")
-                self.logged_in = True
-            except client.LoginRequired:
-                self.logger.info("Username and Password was wrong")
-                update.message.reply_text("Username and Password was wrong\n"
-                                          "Please enter a new username and password by seperating them with space.\n"
-                                          "If you don't know username and password you can"
-                                          " '/cancel'. and try again later")
-                return self.LOGIN_PROMPT
-            return ConversationHandler.END
-        else:
-            self.logger.info("Typed message does not match what is asked.")
-            update.message.reply_text("Please enter a new username and password by seperating them with space.\n"
-                                      "And make sure your username or password does not contain "
-                                      "any space(\" \") character"
-                                      "If you don't know username and password you can"
-                                      " '/cancel'. and try again later")
-            return self.LOGIN_PROMPT
 
     def reconnect(self, bot, update):
         user = update.message.from_user
@@ -476,7 +471,6 @@ class Bot:
 
             states={
                 self.IP: [MessageHandler(Filters.text, self.ip)],
-                self.LOGIN_PROMPT: [MessageHandler(Filters.text, self.login)]
             },
 
             fallbacks=[CommandHandler('cancel', self.cancel)]
