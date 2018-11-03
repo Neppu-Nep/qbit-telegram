@@ -8,8 +8,8 @@ from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters, Conv
 import logging
 import re
 import json
-from qbittorrent import Client
-from qbittorrent import client
+from qbittorrentv2 import Client
+from qbittorrentv2 import client
 from requests import exceptions
 
 
@@ -69,7 +69,7 @@ class Bot:
             self.logger.info("User %s entered a right IP and PORT" % user.id)
             self.logger.info("Trying to connect to client")
             try:
-                self.qb = Client("http://%s/" % self.ip_port_text)
+                self.qb = Client("http://%s" % self.ip_port_text)
                 try:
                     self.qb.torrents()
                     self.logger.info("Logging in was successful.")
@@ -225,7 +225,7 @@ class Bot:
                             torrents_copy.remove(torrent)
                             torrents_to_pause.append(str(torrent["hash"]))
 
-                self.qb.pause_multiple(torrents_to_pause)
+                self.qb.pause(torrents_to_pause)
                 self.logger.info("Paused following: %s" % args)
                 output = ""
                 for torrent in torrents_to_pause:
@@ -279,7 +279,7 @@ class Bot:
                             torrents_copy.remove(torrent)
                             torrents_to_resume.append(str(torrent["hash"]))
 
-                self.qb.resume_multiple(torrents_to_resume)
+                self.qb.resume(torrents_to_resume)
                 self.logger.info("Paused following: %s" % args)
                 output = ""
                 for torrent in torrents_to_resume:
@@ -427,7 +427,80 @@ class Bot:
                 "Ups. Connection to qBit Client is lost. \nRetrying to connect with previous info.")
             self.reconnect(bot=bot, update=update)
             return ConversationHandler.END
+
+    def add_feed(self, bot, update):
+        user = update.message.from_user
+        try:
+            if str(user.id) in bot_auth.user_id:
+                update.message.reply_text("Send feed url to add.")
+                return self.feed
+            elif not self.logged_in:
+                self.logger.info("Usage without logging in tried by: %s -- %s" % (user.username, user.id))
+                update.message.reply_text(
+                    "You should first login by typing /start")
+            else:
+                self.logger.info("Unauthorized usage tried by: %s -- %s" % (user.username, user.id))
+                update.message.reply_text(
+                    "You don't have rights to use me! Who the f*** are you?")
+            return ConversationHandler.END
+        except exceptions.ConnectionError:
+            self.logger.info("Connection is lost. Retrying to connect...")
+            self.logged_in = False
+            update.message.reply_text(
+                "Ups. Connection to qBit Client is lost. \nRetrying to connect with previous info.")
+            self.reconnect(bot=bot, update=update)
+            return ConversationHandler.END
 			
+    def feed(self, bot, update):
+        try:
+            user = update.message.from_user
+            if str(user.id) in bot_auth.user_id:
+                feed_url = update.message.text
+                self.qb.add_feed(feed_url)
+                self.logger.info("Feed url '%s' added" % feed_url)
+                update.message.reply_text("Feed url added")
+            elif not self.logged_in:
+                self.logger.info("Usage without logging in tried by: %s -- %s" % (user.username, user.id))
+                update.message.reply_text(
+                    "You should first login by typing /start")
+            else:
+                self.logger.info("Unauthorized usage tried by: %s -- %s" % (user.username, user.id))
+                update.message.reply_text(
+                    "You don't have rights to use me! Who the f*** are you?")
+
+            return ConversationHandler.END
+        except exceptions.ConnectionError:
+            self.logger.info("Connection is lost. Retrying to connect...")
+            self.logged_in = False
+            update.message.reply_text(
+                "Ups. Connection to qBit Client is lost. \nRetrying to connect with previous info.")
+            self.reconnect(bot=bot, update=update)
+            return ConversationHandler.END
+			
+    def get_item(self, bot, update):
+        try:
+            user = update.message.from_user
+            if str(user.id) in bot_auth.user_id:
+                item = self.qb.get_item()
+                update.message.reply_text(item)
+            elif not self.logged_in:
+                self.logger.info("Usage without logging in tried by: %s -- %s" % (user.username, user.id))
+                update.message.reply_text(
+                    "You should first login by typing /start")
+            else:
+                self.logger.info("Unauthorized usage tried by: %s -- %s" % (user.username, user.id))
+                update.message.reply_text(
+                    "You don't have rights to use me! Who the f*** are you?")
+
+            return ConversationHandler.END
+        except exceptions.ConnectionError:
+            self.logger.info("Connection is lost. Retrying to connect...")
+            self.logged_in = False
+            update.message.reply_text(
+                "Ups. Connection to qBit Client is lost. \nRetrying to connect with previous info.")
+            self.reconnect(bot=bot, update=update)
+            return ConversationHandler.END
+
     def help(self, bot, update):
         update.message.reply_text("Simple bot for using qBit client via Telegram.\n"
                                   "Available commands:\n"
@@ -493,10 +566,21 @@ class Bot:
 
             fallbacks=[CommandHandler('cancel', self.cancel)]
         )
+        conv_handler_feed = ConversationHandler(
+            entry_points=[CommandHandler("add_feed", self.add_feed)],
+
+            states={
+                self.feed: [MessageHandler(Filters.text, self.feed)]
+            },
+
+            fallbacks=[CommandHandler('cancel', self.cancel)]
+        )
         # dp.add_handler()
         dp.add_handler(conv_handler_start)
         dp.add_handler(conv_handler_torrent)
         dp.add_handler(conv_handler_magnet)
+        dp.add_handler(conv_handler_feed)
+        dp.add_handler(CommandHandler("get_item", self.get_item))
         dp.add_handler(CommandHandler("downloading", self.list_downloading_torrents))
         dp.add_handler(CommandHandler("list", self.list))
         dp.add_handler(CommandHandler("pause", self.pause, pass_args=True))
